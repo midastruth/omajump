@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.midastruth.omajump",
   "name": "OmaJump",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Midas Truth",
   "license": "MIT",
   "description": "Jump to any visible window by typing its on-screen number",

@@ -71,10 +71,33 @@ Item {
     for (var i = 0; i < monitors.length; i++)
       monitorById[String(monitors[i].id)] = monitors[i]
 
-    var visible = []
+    // A fullscreen client obscures every other client on the same workspace.
+    // Hyprland still reports those covered clients as mapped and non-hidden,
+    // so remember the fullscreen address before building the visible set.
+    var fullscreenByWorkspace = ({})
     if (Array.isArray(clients)) {
       for (var j = 0; j < clients.length; j++) {
-        var client = clients[j]
+        var candidate = clients[j]
+        var candidateMonitor = monitorById[String(candidate.monitor)]
+        if (!candidateMonitor || candidate.mapped === false || candidate.hidden === true) continue
+
+        var candidateWorkspaceId = Number(candidate.workspace && candidate.workspace.id)
+        var candidateActiveId = Number(candidateMonitor.activeWorkspace && candidateMonitor.activeWorkspace.id)
+        var candidateSpecialId = Number(candidateMonitor.specialWorkspace && candidateMonitor.specialWorkspace.id)
+        if (candidateWorkspaceId !== candidateActiveId
+            && !(candidateSpecialId !== 0 && candidateWorkspaceId === candidateSpecialId)) continue
+
+        if (Number(candidate.fullscreen || 0) !== 0 || Number(candidate.fullscreenClient || 0) !== 0) {
+          var candidateKey = String(candidate.monitor) + ":" + String(candidateWorkspaceId)
+          fullscreenByWorkspace[candidateKey] = String(candidate.address || "")
+        }
+      }
+    }
+
+    var visible = []
+    if (Array.isArray(clients)) {
+      for (var k = 0; k < clients.length; k++) {
+        var client = clients[k]
         var monitor = monitorById[String(client.monitor)]
         if (!monitor || client.mapped === false || client.hidden === true) continue
 
@@ -82,6 +105,10 @@ Item {
         var activeId = Number(monitor.activeWorkspace && monitor.activeWorkspace.id)
         var specialId = Number(monitor.specialWorkspace && monitor.specialWorkspace.id)
         if (workspaceId !== activeId && !(specialId !== 0 && workspaceId === specialId)) continue
+
+        var workspaceKey = String(client.monitor) + ":" + String(workspaceId)
+        var fullscreenAddress = String(fullscreenByWorkspace[workspaceKey] || "")
+        if (fullscreenAddress && String(client.address || "") !== fullscreenAddress) continue
 
         var at = client.at || [0, 0]
         var size = client.size || [1, 1]
@@ -130,9 +157,9 @@ Item {
       return a.address < b.address ? -1 : 1
     })
 
-    for (var k = 0; k < visible.length; k++) {
-      visible[k].number = k + 1
-      visible[k].label = String(k + 1)
+    for (var n = 0; n < visible.length; n++) {
+      visible[n].number = n + 1
+      visible[n].label = String(n + 1)
     }
 
     hints = visible
