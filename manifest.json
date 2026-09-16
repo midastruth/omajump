@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.midastruth.omajump",
+  "name": "OmaJump",
+  "version": "1.0.0",
+  "author": "Midas Truth",
+  "license": "MIT",
+  "description": "Jump to any visible window by typing its on-screen number",
+  "kinds": [
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "overlay": "Overlay.qml"
+  }
+}
