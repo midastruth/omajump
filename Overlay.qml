@@ -19,6 +19,12 @@ Item {
   readonly property string pluginId: (manifest && manifest.id) || "io.github.midastruth.omajump"
 
   function open(payload) {
+    // Invoking the launcher again while hints are visible focuses the window
+    // with the largest on-screen area.
+    if (opened) {
+      chooseLargest()
+      return
+    }
     if (loading) return
     opened = false
     typed = ""
@@ -137,12 +143,15 @@ Item {
           title: String(client.title || client.class || "Window"),
           className: String(client.class || ""),
           monitorName: String(monitor.name || ""),
+          focusHistoryId: Number(client.focusHistoryID === undefined ? -1 : client.focusHistoryID),
           globalX: Number(at[0] || 0),
           globalY: Number(at[1] || 0),
           x: localX,
           y: localY,
           width: windowWidth,
-          height: windowHeight
+          height: windowHeight,
+          visibleArea: Math.max(0, Math.min(monitorWidth, localX + windowWidth) - Math.max(0, localX))
+            * Math.max(0, Math.min(monitorHeight, localY + windowHeight) - Math.max(0, localY))
         })
       }
     }
@@ -178,6 +187,39 @@ Item {
     for (var i = 0; i < hints.length; i++)
       if (hints[i].number === number) return hints[i]
     return null
+  }
+
+  function largestHint() {
+    var largest = []
+    var largestArea = -1
+    for (var i = 0; i < hints.length; i++) {
+      var area = Math.max(0, Number(hints[i].visibleArea || 0))
+      if (area > largestArea) {
+        largest = [hints[i]]
+        largestArea = area
+      } else if (area === largestArea) {
+        largest.push(hints[i])
+      }
+    }
+
+    if (largest.length <= 1) return largest.length === 1 ? largest[0] : null
+
+    // Match Alt+Tab for equal-size windows: skip the active window (history 0)
+    // and choose the most recently focused alternative (history 1, then 2…).
+    var previous = null
+    var previousHistoryId = Infinity
+    for (var j = 0; j < largest.length; j++) {
+      var historyId = largest[j].focusHistoryId
+      if (historyId > 0 && historyId < previousHistoryId) {
+        previous = largest[j]
+        previousHistoryId = historyId
+      }
+    }
+    return previous || largest[0]
+  }
+
+  function chooseLargest() {
+    choose(largestHint())
   }
 
   function choose(hint) {
@@ -236,6 +278,9 @@ Item {
       typed = typed.length > 0 ? typed.slice(0, -1) : ""
       if (typed) prefixTimer.restart()
       else prefixTimer.stop()
+      event.accepted = true
+    } else if (event.key === Qt.Key_H && (event.modifiers & Qt.MetaModifier)) {
+      chooseLargest()
       event.accepted = true
     }
   }
@@ -325,7 +370,7 @@ Item {
           anchors.centerIn: parent
           text: root.typed
             ? "Window " + root.typed + "…  ·  Enter to select  ·  Esc to cancel"
-            : "Type a window number  ·  Esc to cancel"
+            : "Type a window number  ·  Shortcut again for largest  ·  Esc to cancel"
           color: Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall

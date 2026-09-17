@@ -13,6 +13,7 @@ OmaJump is a native Omarchy Shell overlay. Tap **Super** by itself and every win
 - Filters out off-screen clients used by scrolling layouts
 - Theme-aware colors, typography, and spacing
 - Mouse selection and Escape-to-cancel
+- Press the launcher shortcut again to focus the largest visible window, with Alt+Tab-style recent-focus selection when sizes tie
 - Preserves existing shortcuts such as `Super+1`
 
 ## Requirements
@@ -41,7 +42,8 @@ The helper creates a timestamped backup of `~/.config/hypr/bindings.lua`, adds a
 
 1. Tap and release **Super** without pressing another key.
 2. Type the number shown on the window you want.
-3. Press **Escape** or click the dimmed background to cancel.
+3. Alternatively, invoke the launcher shortcut again while the hints are visible to focus the largest visible window. If multiple windows tie, OmaJump chooses the most recently focused alternative, like Alt+Tab.
+4. Press **Escape** or click the dimmed background to cancel.
 
 With ten or more visible windows, a prefix can be ambiguous. Continue typing the multi-digit number, press **Enter** to accept the shorter exact match, or wait 500 ms.
 
