@@ -238,8 +238,16 @@ Item {
     selectedAddress = hint.address
     prefixTimer.stop()
     selectionTimer.restart()
-    var dispatcher = "hl.dsp.focus({ window = \"address:" + hint.address + "\" })"
-    Quickshell.execDetached(["hyprctl", "dispatch", dispatcher])
+  }
+
+  function focusSelectedAfterHide() {
+    if (!selectedAddress) return
+    var dispatcher = "hl.dsp.focus({ window = \"address:" + selectedAddress + "\" })"
+    // The component's own timers stop when shell.hide() unloads it, so use a
+    // detached process to let the layer disappear before focusing the client.
+    Quickshell.execDetached([
+      "sh", "-c", "sleep 0.05; exec hyprctl dispatch '" + dispatcher + "'"
+    ])
   }
 
   function appendDigit(digit) {
@@ -323,6 +331,11 @@ Item {
     repeat: false
     onTriggered: {
       root.closing = false
+      // Focusing while the exclusive layer is mapped only moves Hyprland's
+      // cursor/monitor and leaves the previous client focused. Schedule the
+      // request first, then hide the overlay while the detached process waits.
+      if (root.selectedAddress)
+        root.focusSelectedAfterHide()
       if (root.shell && typeof root.shell.hide === "function")
         root.shell.hide(root.pluginId)
     }
