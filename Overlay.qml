@@ -15,6 +15,8 @@ Item {
   property bool loading: false
   property string typed: ""
   readonly property int animationDuration: 160
+  readonly property int selectionDuration: 140
+  property string selectedAddress: ""
   property string focusedMonitorName: ""
   property var monitors: []
   property var hints: []
@@ -33,6 +35,7 @@ Item {
     closing = false
     opened = false
     typed = ""
+    selectedAddress = ""
     hints = []
     monitors = []
     loading = true
@@ -41,6 +44,7 @@ Item {
 
   function close() {
     prefixTimer.stop()
+    selectionTimer.stop()
     typed = ""
     opened = false
   }
@@ -230,8 +234,10 @@ Item {
   }
 
   function choose(hint) {
-    if (!hint || !hint.address) return
-    dismiss()
+    if (!hint || !hint.address || selectedAddress) return
+    selectedAddress = hint.address
+    prefixTimer.stop()
+    selectionTimer.restart()
     var dispatcher = "hl.dsp.focus({ window = \"address:" + hint.address + "\" })"
     Quickshell.execDetached(["hyprctl", "dispatch", dispatcher])
   }
@@ -272,6 +278,11 @@ Item {
   }
 
   function handleKey(event) {
+    if (selectedAddress) {
+      event.accepted = true
+      return
+    }
+
     if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
       appendDigit(event.key - Qt.Key_0)
       event.accepted = true
@@ -297,6 +308,13 @@ Item {
     interval: 500
     repeat: false
     onTriggered: root.acceptTyped()
+  }
+
+  Timer {
+    id: selectionTimer
+    interval: root.selectionDuration
+    repeat: false
+    onTriggered: root.dismiss()
   }
 
   Timer {
@@ -418,7 +436,11 @@ Item {
           id: badge
           required property var modelData
           property real revealProgress: 0
+          property real revealOpacity: 0
 
+          readonly property bool selected: modelData.address === root.selectedAddress
+          readonly property bool matchesTyped: root.typed.length > 0
+            && modelData.label.indexOf(root.typed) === 0
           readonly property real centerX: modelData.x + modelData.width / 2
           readonly property real centerY: modelData.y + modelData.height / 2
 
@@ -426,12 +448,13 @@ Item {
           y: Math.max(8, Math.min(panel.height - height - 8, centerY - height / 2))
           width: Math.max(Style.space(52), numberText.implicitWidth + Style.space(28))
           height: Style.space(52)
-          // Begin as a visible dot, then grow into the full circular badge.
+          // Grow from a dot while fading in independently, avoiding the old
+          // abrupt jump to full opacity near the start of the scale animation.
           scale: 0.04 + 0.96 * revealProgress
-          opacity: Math.min(1, revealProgress * 4)
+          opacity: revealOpacity
 
-          // Delegates are created after `opened` becomes true, so an explicit
-          // reveal animation is needed instead of relying on Behavior alone.
+          // Delegates are created after `opened` becomes true, so explicit
+          // reveal animations are needed instead of relying on Behavior alone.
           NumberAnimation on revealProgress {
             running: true
             from: 0
@@ -440,19 +463,31 @@ Item {
             easing.type: Easing.OutBack
             easing.overshoot: 1.25
           }
+          NumberAnimation on revealOpacity {
+            running: true
+            from: 0
+            to: 1
+            duration: 220
+            easing.type: Easing.OutCubic
+          }
 
           Item {
             id: badgeVisual
             anchors.fill: parent
             scale: root.opened
-              ? (root.typed && badge.modelData.label.indexOf(root.typed) !== 0 ? 0.82 : 1)
+              ? (badge.selected ? 1.14
+                : root.selectedAddress ? 0.88
+                : badge.matchesTyped ? 1.06
+                : root.typed ? 0.82 : 1)
               : 0.9
             opacity: root.opened
-              ? (root.typed && badge.modelData.label.indexOf(root.typed) !== 0 ? 0.35 : 1)
+              ? (badge.selected ? 1
+                : root.selectedAddress ? 0.18
+                : root.typed && !badge.matchesTyped ? 0.35 : 1)
               : 0
 
             Behavior on scale {
-              NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+              NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
             }
             Behavior on opacity {
               NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
@@ -468,7 +503,11 @@ Item {
               blurMax: 24
               colorization: 1
               colorizationColor: Color.accent
-              opacity: 0.28
+              opacity: badge.selected ? 0.48 : 0.28
+
+              Behavior on opacity {
+                NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+              }
             }
 
             // Render the badge through a second effect to add a soft drop shadow.
@@ -506,7 +545,7 @@ Item {
 
           MouseArea {
             anchors.fill: parent
-            enabled: root.opened
+            enabled: root.opened && !root.selectedAddress
             cursorShape: Qt.PointingHandCursor
             onClicked: root.choose(badge.modelData)
           }
