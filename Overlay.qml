@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -10,8 +11,10 @@ Item {
   property var shell: null
   property var manifest: null
   property bool opened: false
+  property bool closing: false
   property bool loading: false
   property string typed: ""
+  readonly property int animationDuration: 160
   property string focusedMonitorName: ""
   property var monitors: []
   property var hints: []
@@ -26,6 +29,8 @@ Item {
       return
     }
     if (loading) return
+    dismissTimer.stop()
+    closing = false
     opened = false
     typed = ""
     hints = []
@@ -41,8 +46,10 @@ Item {
   }
 
   function dismiss() {
+    if (!opened || closing) return
     close()
-    if (shell && typeof shell.hide === "function") shell.hide(pluginId)
+    closing = true
+    dismissTimer.restart()
   }
 
   function parseJson(text, fallback) {
@@ -292,6 +299,17 @@ Item {
     onTriggered: root.acceptTyped()
   }
 
+  Timer {
+    id: dismissTimer
+    interval: root.animationDuration
+    repeat: false
+    onTriggered: {
+      root.closing = false
+      if (root.shell && typeof root.shell.hide === "function")
+        root.shell.hide(root.pluginId)
+    }
+  }
+
   Process {
     id: monitorQuery
     command: ["hyprctl", "monitors", "-j"]
@@ -318,7 +336,7 @@ Item {
       required property var modelData
 
       screen: modelData
-      visible: root.opened
+      visible: root.opened || root.closing
       color: "transparent"
       exclusionMode: ExclusionMode.Ignore
       anchors { top: true; bottom: true; left: true; right: true }
@@ -333,11 +351,17 @@ Item {
 
       Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.18)
+        color: Qt.rgba(0, 0, 0, 0.08)
+        opacity: root.opened ? 1 : 0
+
+        Behavior on opacity {
+          NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
+        }
       }
 
       MouseArea {
         anchors.fill: parent
+        enabled: root.opened
         onClicked: root.dismiss()
       }
 
@@ -364,6 +388,15 @@ Item {
         color: Color.background
         border.width: Math.max(1, Style.space(1))
         border.color: Color.accent
+        opacity: root.opened ? 1 : 0
+        scale: root.opened ? 1 : 0.94
+
+        Behavior on opacity {
+          NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
+        }
+        Behavior on scale {
+          NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutBack }
+        }
 
         Text {
           id: instruction
@@ -381,9 +414,10 @@ Item {
       Repeater {
         model: root.hintsForScreen(panel.screenName)
 
-        delegate: Rectangle {
+        delegate: Item {
           id: badge
           required property var modelData
+          property real revealProgress: 0
 
           readonly property real centerX: modelData.x + modelData.width / 2
           readonly property real centerY: modelData.y + modelData.height / 2
@@ -392,28 +426,88 @@ Item {
           y: Math.max(8, Math.min(panel.height - height - 8, centerY - height / 2))
           width: Math.max(Style.space(52), numberText.implicitWidth + Style.space(28))
           height: Style.space(52)
-          radius: height / 2
-          color: Color.accent
-          border.width: Math.max(2, Style.space(2))
-          border.color: Color.foreground
-          scale: root.typed && modelData.label.indexOf(root.typed) !== 0 ? 0.82 : 1
-          opacity: root.typed && modelData.label.indexOf(root.typed) !== 0 ? 0.35 : 1
+          // Begin as a visible dot, then grow into the full circular badge.
+          scale: 0.04 + 0.96 * revealProgress
+          opacity: Math.min(1, revealProgress * 4)
 
-          Behavior on scale { NumberAnimation { duration: 100 } }
-          Behavior on opacity { NumberAnimation { duration: 100 } }
+          // Delegates are created after `opened` becomes true, so an explicit
+          // reveal animation is needed instead of relying on Behavior alone.
+          NumberAnimation on revealProgress {
+            running: true
+            from: 0
+            to: 1
+            duration: 320
+            easing.type: Easing.OutBack
+            easing.overshoot: 1.25
+          }
 
-          Text {
-            id: numberText
-            anchors.centerIn: parent
-            text: badge.modelData.label
-            color: Color.background
-            font.family: Style.font.family
-            font.pixelSize: Style.font.title
-            font.bold: true
+          Item {
+            id: badgeVisual
+            anchors.fill: parent
+            scale: root.opened
+              ? (root.typed && badge.modelData.label.indexOf(root.typed) !== 0 ? 0.82 : 1)
+              : 0.9
+            opacity: root.opened
+              ? (root.typed && badge.modelData.label.indexOf(root.typed) !== 0 ? 0.35 : 1)
+              : 0
+
+            Behavior on scale {
+              NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+            }
+            Behavior on opacity {
+              NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
+            }
+
+            // A blurred accent silhouette creates a quiet halo behind the badge.
+            MultiEffect {
+              anchors.fill: badgeSurface
+              source: badgeSurface
+              autoPaddingEnabled: true
+              blurEnabled: true
+              blur: 0.75
+              blurMax: 24
+              colorization: 1
+              colorizationColor: Color.accent
+              opacity: 0.28
+            }
+
+            // Render the badge through a second effect to add a soft drop shadow.
+            MultiEffect {
+              anchors.fill: badgeSurface
+              source: badgeSurface
+              autoPaddingEnabled: true
+              shadowEnabled: true
+              shadowColor: "#b0000000"
+              shadowOpacity: 0.55
+              shadowBlur: 0.7
+              shadowVerticalOffset: Style.space(3)
+            }
+
+            Rectangle {
+              id: badgeSurface
+              anchors.fill: parent
+              visible: false
+              radius: height / 2
+              color: Color.accent
+              border.width: Math.max(2, Style.space(2))
+              border.color: Color.foreground
+
+              Text {
+                id: numberText
+                anchors.centerIn: parent
+                text: badge.modelData.label
+                color: Color.background
+                font.family: Style.font.family
+                font.pixelSize: Style.font.title
+                font.bold: true
+              }
+            }
           }
 
           MouseArea {
             anchors.fill: parent
+            enabled: root.opened
+            cursorShape: Qt.PointingHandCursor
             onClicked: root.choose(badge.modelData)
           }
         }
@@ -422,11 +516,20 @@ Item {
       Text {
         visible: root.hints.length === 0 && panel.keyboardOwner
         anchors.centerIn: parent
+        opacity: root.opened ? 1 : 0
+        scale: root.opened ? 1 : 0.94
         text: "No visible windows"
         color: Color.foreground
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true
+
+        Behavior on opacity {
+          NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutCubic }
+        }
+        Behavior on scale {
+          NumberAnimation { duration: root.animationDuration; easing.type: Easing.OutBack }
+        }
       }
     }
   }
